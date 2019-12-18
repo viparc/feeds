@@ -1,0 +1,181 @@
+---
+title: "Feeds"
+csl: the-american-naturalist.csl
+output:
+  html_document:
+    theme: cerulean
+    toc: yes
+  pdf_document:
+    toc: yes
+<!-- bibliography: references.bib -->
+editor_options: 
+  chunk_output_type: console
+---
+
+<!--
+IMAGES:
+Insert them with: ![alt text](image.png)
+You can also resize them if needed: convert image.png -resize 50% image.png
+If you want to center the image, go through HTML code:
+<div style="text-align:center"><img src ="image.png"/></div>
+
+REFERENCES:
+For references: Put all the bibTeX references in the file "references.bib"
+in the current folder and cite the references as @key or [@key] in the text.
+Uncomment the bibliography field in the above header and put a "References"
+title wherever you want to display the reference list.
+-->
+
+<style type="text/css">
+.main-container {
+  max-width: 1370px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r general options, include = FALSE}
+knitr::knit_hooks$set(
+  margin = function(before, options, envir) {
+    if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+    else NULL
+  },
+  prompt = function(before, options, envir) {
+    options(prompt = if (options$engine %in% c("sh", "bash")) "$ " else "> ")
+  })
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
+                      collapse = TRUE, cache = FALSE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center",
+                      message = FALSE)
+
+options(width = 137)
+```
+
+## Required packages
+
+```{r}
+library(magrittr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(readr)
+```
+
+## Reading and transforming the data a bit
+
+The trick here is to replace the `concentration` column by two columns `minc`
+and `maxc` where `maxc = concentration`. Whenever there is only 1 antibiotic,
+`minc` is equal to `concentration` as well but equal to `0` otherwise. Whenever
+there is no antibiotics at all, both `minc` and `maxc` are set to `0`. For
+simplicity, we also replace missing value of `anti_name` by the character string
+`no_anti`:
+
+```{r}
+feeds <- read_csv("Feed_Chapter4_data_10Dec.csv") %>% 
+  mutate(minc = if_else(no_option < 1 | is.na(no_option), concentration, 0),
+         maxc = concentration) %>% 
+  mutate_at(vars(minc, maxc), replace_na, 0) %>% 
+  mutate_at(vars(anti_name), replace_na, "no_anti") %>% 
+  select(-concentration)
+```
+
+This being done, it's now fairly easy to compute, the range of the mean
+concentration of, for example, colistin:
+
+```{r}
+feeds %>% 
+  filter(anti_name %in% c("colistin", "no_anti")) %>% 
+  summarise(minc = mean(minc), maxc = mean(maxc))
+```
+
+Similarly, the range of the mean concentration of colistin per flock:
+
+```{r}
+feeds %>% 
+  filter(anti_name %in% c("colistin", "no_anti")) %>% 
+  group_by(flockid) %>% 
+  summarise(minc = mean(minc), maxc = mean(maxc))
+```
+
+And the range of the mean concentration of colistin per farm:
+
+```{r}
+feeds %>% 
+  filter(anti_name %in% c("colistin", "no_anti")) %>% 
+  group_by(farmid) %>% 
+  summarise(minc = mean(minc), maxc = mean(maxc))
+```
+
+## Computing the ranges for all antibiotics
+
+This is the list of all antibiotics:
+
+```{r}
+anti_list <- setdiff(unique(feeds$anti_name), "no_anti")
+```
+
+The following function computes the ranges for all the antibiotics:
+
+```{r}
+compute_range <- function(x) {
+  anti_list %>% 
+    map_dfr(~ filter(x, anti_name %in% c(.x, "no_anti")) %>%
+              summarise(minc = mean(minc), maxc = mean(maxc))) %>% 
+    mutate(antibiotic = anti_list) %>% 
+    select(antibiotic, everything())
+}
+```
+
+Let's try it for all the weeks pooled together:
+
+```{r}
+compute_range(feeds)
+```
+
+By flock:
+
+```{r}
+feeds %>% 
+  group_by(flockid) %>% 
+  group_modify(~ compute_range(.x))
+```
+
+By farm:
+
+```{r}
+feeds %>% 
+  group_by(farmid) %>% 
+  group_modify(~ compute_range(.x))
+```
+
+## Frequencies
+
+If now we are interested in frequencies of usage instead of concentration, it's
+basically the same as above, replacing `minc` and `maxc` by presence / absence
+data. For all weeks pooled together:
+
+```{r}
+feeds %>%
+  mutate_at(vars(minc, maxc), as.logical) %>% 
+  compute_range()
+```
+
+By flock:
+
+```{r}
+feeds %>% 
+  mutate_at(vars(minc, maxc), as.logical) %>% 
+  group_by(flockid) %>% 
+  group_modify(~ compute_range(.x))
+```
+
+By farm:
+
+```{r}
+feeds %>% 
+  mutate_at(vars(minc, maxc), as.logical) %>% 
+  group_by(farmid) %>% 
+  group_modify(~ compute_range(.x))
+```
