@@ -404,21 +404,38 @@ title wherever you want to display the reference list.
 </div>
 <div id="reading-and-transforming-the-data-a-bit" class="section level2">
 <h2>Reading and transforming the data a bit</h2>
-<p>The trick here is to replace the <code>concentration</code> column by two columns <code>minc</code> and <code>maxc</code> where <code>maxc = concentration</code>. Whenever there is only 1 antibiotic, <code>minc</code> is equal to <code>concentration</code> as well but equal to <code>0</code> otherwise. Whenever there is no antibiotics at all, both <code>minc</code> and <code>maxc</code> are set to <code>0</code>. For simplicity, we also replace missing value of <code>anti_name</code> by the character string <code>no_anti</code>:</p>
-<pre class="r"><code>&gt; feeds &lt;- read_csv(&quot;Feed_Chapter4_data_10Dec.csv&quot;) %&gt;% 
-+   mutate(minc = if_else(no_option &lt; 1 | is.na(no_option), concentration, 0),
-+          maxc = concentration) %&gt;% 
+<p>The trick here is to replace the <code>concentration</code> column by two columns <code>minc</code> and <code>maxc</code> where <code>maxc = amount_anti_mg/kg/week</code>. Whenever there is only 1 antibiotic, <code>minc</code> is equal to <code>amount_anti_mg/kg/week</code> as well but equal to <code>0</code> otherwise. Whenever there is no antibiotics at all, both <code>minc</code> and <code>maxc</code> are set to <code>0</code>. For simplicity, we also replace missing value of <code>anti_name</code> by the character string <code>no_anti</code>:</p>
+<pre class="r"><code>&gt; (feeds &lt;- read_csv(&quot;Feed_Chapter4_data_10Dec.csv&quot;) %&gt;%
++   mutate(minc = if_else(option &gt; 0, 0, `amount_anti_mg/kg/week`),
++          maxc = `amount_anti_mg/kg/week`) %&gt;% 
 +   mutate_at(vars(minc, maxc), replace_na, 0) %&gt;% 
 +   mutate_at(vars(anti_name), replace_na, &quot;no_anti&quot;) %&gt;% 
-+   select(-concentration)</code></pre>
++   group_by(farmid, flockid, weekid, anti_name) %&gt;% 
++   summarise_at(vars(minc, maxc), sum) %&gt;% 
++   ungroup())
+# A tibble: 6,767 x 6
+   farmid flockid  weekid      anti_name  minc  maxc
+   &lt;chr&gt;  &lt;chr&gt;    &lt;chr&gt;       &lt;chr&gt;     &lt;dbl&gt; &lt;dbl&gt;
+ 1 75-001 75-001_1 75-001_1_1  enramycin 15.4  15.4 
+ 2 75-001 75-001_1 75-001_1_10 no_anti    0     0   
+ 3 75-001 75-001_1 75-001_1_11 no_anti    0     0   
+ 4 75-001 75-001_1 75-001_1_12 no_anti    0     0   
+ 5 75-001 75-001_1 75-001_1_13 no_anti    0     0   
+ 6 75-001 75-001_1 75-001_1_14 enramycin  3.46  3.46
+ 7 75-001 75-001_1 75-001_1_15 no_anti    0     0   
+ 8 75-001 75-001_1 75-001_1_16 no_anti    0     0   
+ 9 75-001 75-001_1 75-001_1_17 no_anti    0     0   
+10 75-001 75-001_1 75-001_1_18 no_anti    0     0   
+# … with 6,757 more rows</code></pre>
+<p>Note: <code>option == 1</code> means there is a label problem.</p>
 <p>This being done, it’s now fairly easy to compute, the range of the mean concentration of, for example, colistin:</p>
-<pre class="r"><code>&gt; feeds %&gt;% 
-+   filter(anti_name %in% c(&quot;colistin&quot;, &quot;no_anti&quot;)) %&gt;% 
+<pre class="r"><code>&gt; feeds %&gt;%
++   filter(anti_name %in% c(&quot;colistin&quot;, &quot;no_anti&quot;)) %&gt;%
 +   summarise(minc = mean(minc), maxc = mean(maxc))
 # A tibble: 1 x 2
    minc  maxc
   &lt;dbl&gt; &lt;dbl&gt;
-1 0.862  1.83</code></pre>
+1 0.345 0.875</code></pre>
 <p>Similarly, the range of the mean concentration of colistin per flock:</p>
 <pre class="r"><code>&gt; feeds %&gt;% 
 +   filter(anti_name %in% c(&quot;colistin&quot;, &quot;no_anti&quot;)) %&gt;% 
@@ -466,32 +483,32 @@ title wherever you want to display the reference list.
 <pre class="r"><code>&gt; compute_range &lt;- function(x) {
 +   anti_list %&gt;% 
 +     map_dfr(~ filter(x, anti_name %in% c(.x, &quot;no_anti&quot;)) %&gt;%
-+               summarise(minc = mean(minc), maxc = mean(maxc))) %&gt;% 
++                 summarise(minc = mean(minc), maxc = mean(maxc))) %&gt;% 
 +     mutate(antibiotic = anti_list) %&gt;% 
 +     select(antibiotic, everything())
 + }</code></pre>
 <p>Let’s try it for all the weeks pooled together:</p>
 <pre class="r"><code>&gt; compute_range(feeds)
 # A tibble: 8 x 3
-  antibiotic          minc   maxc
-  &lt;chr&gt;              &lt;dbl&gt;  &lt;dbl&gt;
-1 enramycin          3.59   3.96 
-2 chlortetracycline 10.7   10.8  
-3 bacitracin         4.05   7.11 
-4 virginiamycin      0.123  0.212
-5 avilamycin         0      0.238
-6 flavomycin         0      0.139
-7 colistin           0.862  1.83 
-8 Oxytetracyline     0      0.129</code></pre>
+  antibiotic         minc   maxc
+  &lt;chr&gt;             &lt;dbl&gt;  &lt;dbl&gt;
+1 enramycin         2.19  2.42  
+2 chlortetracycline 6.65  6.72  
+3 bacitracin        3.44  5.54  
+4 virginiamycin     0.102 0.140 
+5 avilamycin        0     0.165 
+6 flavomycin        0     0.0763
+7 colistin          0.345 0.875 
+8 Oxytetracyline    0     0.0879</code></pre>
 <p>By flock:</p>
 <pre class="r"><code>&gt; feeds %&gt;% 
 +   group_by(flockid) %&gt;% 
-+   group_modify(~ compute_range(.x))
++   group_modify(~ compute_range(.x)) %&gt;% 
++   ungroup()
 # A tibble: 2,800 x 4
-# Groups:   flockid [350]
    flockid  antibiotic         minc  maxc
    &lt;chr&gt;    &lt;chr&gt;             &lt;dbl&gt; &lt;dbl&gt;
- 1 75-001_1 enramycin          2.96  2.96
+ 1 75-001_1 enramycin          2.28  2.28
  2 75-001_1 chlortetracycline  0     0   
  3 75-001_1 bacitracin         0     0   
  4 75-001_1 virginiamycin      0     0   
@@ -499,18 +516,18 @@ title wherever you want to display the reference list.
  6 75-001_1 flavomycin         0     0   
  7 75-001_1 colistin           0     0   
  8 75-001_1 Oxytetracyline     0     0   
- 9 75-001_2 enramycin          3.75  3.75
+ 9 75-001_2 enramycin          2.86  2.86
 10 75-001_2 chlortetracycline  0     0   
 # … with 2,790 more rows</code></pre>
 <p>By farm:</p>
 <pre class="r"><code>&gt; feeds %&gt;% 
 +   group_by(farmid) %&gt;% 
-+   group_modify(~ compute_range(.x))
++   group_modify(~ compute_range(.x)) %&gt;% 
++   ungroup()
 # A tibble: 1,008 x 4
-# Groups:   farmid [126]
    farmid antibiotic         minc  maxc
    &lt;chr&gt;  &lt;chr&gt;             &lt;dbl&gt; &lt;dbl&gt;
- 1 75-001 enramycin          5.50  5.50
+ 1 75-001 enramycin          3.65  3.65
  2 75-001 chlortetracycline  0     0   
  3 75-001 bacitracin         0     0   
  4 75-001 virginiamycin      0     0   
@@ -518,7 +535,7 @@ title wherever you want to display the reference list.
  6 75-001 flavomycin         0     0   
  7 75-001 colistin           0     0   
  8 75-001 Oxytetracyline     0     0   
- 9 75-002 enramycin          7.13  7.13
+ 9 75-002 enramycin          4.20  4.20
 10 75-002 chlortetracycline  0     0   
 # … with 998 more rows</code></pre>
 </div>
@@ -531,21 +548,21 @@ title wherever you want to display the reference list.
 # A tibble: 8 x 3
   antibiotic           minc    maxc
   &lt;chr&gt;               &lt;dbl&gt;   &lt;dbl&gt;
-1 enramycin         0.363   0.397  
-2 chlortetracycline 0.210   0.212  
-3 bacitracin        0.129   0.179  
-4 virginiamycin     0.0123  0.0302 
-5 avilamycin        0       0.0200 
-6 flavomycin        0       0.0200 
-7 colistin          0.00575 0.0160 
-8 Oxytetracyline    0       0.00259</code></pre>
+1 enramycin         0.365   0.397  
+2 chlortetracycline 0.213   0.215  
+3 bacitracin        0.131   0.181  
+4 virginiamycin     0.0125  0.0309 
+5 avilamycin        0       0.0198 
+6 flavomycin        0       0.0198 
+7 colistin          0.00587 0.0163 
+8 Oxytetracyline    0       0.00265</code></pre>
 <p>By flock:</p>
 <pre class="r"><code>&gt; feeds %&gt;% 
 +   mutate_at(vars(minc, maxc), as.logical) %&gt;% 
 +   group_by(flockid) %&gt;% 
-+   group_modify(~ compute_range(.x))
++   group_modify(~ compute_range(.x)) %&gt;% 
++   ungroup()
 # A tibble: 2,800 x 4
-# Groups:   flockid [350]
    flockid  antibiotic         minc  maxc
    &lt;chr&gt;    &lt;chr&gt;             &lt;dbl&gt; &lt;dbl&gt;
  1 75-001_1 enramycin         0.296 0.296
@@ -563,12 +580,12 @@ title wherever you want to display the reference list.
 <pre class="r"><code>&gt; feeds %&gt;% 
 +   mutate_at(vars(minc, maxc), as.logical) %&gt;% 
 +   group_by(farmid) %&gt;% 
-+   group_modify(~ compute_range(.x))
++   group_modify(~ compute_range(.x)) %&gt;% 
++   ungroup()
 # A tibble: 1,008 x 4
-# Groups:   farmid [126]
    farmid antibiotic         minc  maxc
    &lt;chr&gt;  &lt;chr&gt;             &lt;dbl&gt; &lt;dbl&gt;
- 1 75-001 enramycin         0.550 0.550
+ 1 75-001 enramycin         0.531 0.531
  2 75-001 chlortetracycline 0     0    
  3 75-001 bacitracin        0     0    
  4 75-001 virginiamycin     0     0    
@@ -576,7 +593,7 @@ title wherever you want to display the reference list.
  6 75-001 flavomycin        0     0    
  7 75-001 colistin          0     0    
  8 75-001 Oxytetracyline    0     0    
- 9 75-002 enramycin         0.713 0.713
+ 9 75-002 enramycin         0.699 0.699
 10 75-002 chlortetracycline 0     0    
 # … with 998 more rows</code></pre>
 </div>

@@ -66,27 +66,31 @@ library(readr)
 ## Reading and transforming the data a bit
 
 The trick here is to replace the `concentration` column by two columns `minc`
-and `maxc` where `maxc = concentration`. Whenever there is only 1 antibiotic,
-`minc` is equal to `concentration` as well but equal to `0` otherwise. Whenever
-there is no antibiotics at all, both `minc` and `maxc` are set to `0`. For
-simplicity, we also replace missing value of `anti_name` by the character string
-`no_anti`:
+and `maxc` where `maxc = amount_anti_mg/kg/week`. Whenever there is only 1
+antibiotic, `minc` is equal to `amount_anti_mg/kg/week` as well but equal to `0`
+otherwise. Whenever there is no antibiotics at all, both `minc` and `maxc` are
+set to `0`. For simplicity, we also replace missing value of `anti_name` by the
+character string `no_anti`:
 
 ```{r}
-feeds <- read_csv("Feed_Chapter4_data_10Dec.csv") %>% 
-  mutate(minc = if_else(no_option < 1 | is.na(no_option), concentration, 0),
-         maxc = concentration) %>% 
+(feeds <- read_csv("Feed_Chapter4_data_10Dec.csv") %>%
+  mutate(minc = if_else(option > 0, 0, `amount_anti_mg/kg/week`),
+         maxc = `amount_anti_mg/kg/week`) %>% 
   mutate_at(vars(minc, maxc), replace_na, 0) %>% 
   mutate_at(vars(anti_name), replace_na, "no_anti") %>% 
-  select(-concentration)
+  group_by(farmid, flockid, weekid, anti_name) %>% 
+  summarise_at(vars(minc, maxc), sum) %>% 
+  ungroup())
 ```
+
+Note: `option == 1` means there is a label problem.
 
 This being done, it's now fairly easy to compute, the range of the mean
 concentration of, for example, colistin:
 
 ```{r}
-feeds %>% 
-  filter(anti_name %in% c("colistin", "no_anti")) %>% 
+feeds %>%
+  filter(anti_name %in% c("colistin", "no_anti")) %>%
   summarise(minc = mean(minc), maxc = mean(maxc))
 ```
 
@@ -122,7 +126,7 @@ The following function computes the ranges for all the antibiotics:
 compute_range <- function(x) {
   anti_list %>% 
     map_dfr(~ filter(x, anti_name %in% c(.x, "no_anti")) %>%
-              summarise(minc = mean(minc), maxc = mean(maxc))) %>% 
+                summarise(minc = mean(minc), maxc = mean(maxc))) %>% 
     mutate(antibiotic = anti_list) %>% 
     select(antibiotic, everything())
 }
@@ -139,7 +143,8 @@ By flock:
 ```{r}
 feeds %>% 
   group_by(flockid) %>% 
-  group_modify(~ compute_range(.x))
+  group_modify(~ compute_range(.x)) %>% 
+  ungroup()
 ```
 
 By farm:
@@ -147,7 +152,8 @@ By farm:
 ```{r}
 feeds %>% 
   group_by(farmid) %>% 
-  group_modify(~ compute_range(.x))
+  group_modify(~ compute_range(.x)) %>% 
+  ungroup()
 ```
 
 ## Frequencies
@@ -168,7 +174,8 @@ By flock:
 feeds %>% 
   mutate_at(vars(minc, maxc), as.logical) %>% 
   group_by(flockid) %>% 
-  group_modify(~ compute_range(.x))
+  group_modify(~ compute_range(.x)) %>% 
+  ungroup()
 ```
 
 By farm:
@@ -177,5 +184,6 @@ By farm:
 feeds %>% 
   mutate_at(vars(minc, maxc), as.logical) %>% 
   group_by(farmid) %>% 
-  group_modify(~ compute_range(.x))
+  group_modify(~ compute_range(.x)) %>% 
+  ungroup()
 ```
